@@ -1,5 +1,5 @@
-# Change Management
-Building an agent for the autonomous flow of Change Management IT General Control Activity.
+# Change Management - Documentation Index & Onboarding
+Welcome to the Multi-Agent Change Management Control Demo documentation! This index summarizes each doc and provides quick links for onboarding and reference.
 
 
 # See Also
@@ -9,9 +9,6 @@ Building an agent for the autonomous flow of Change Management IT General Contro
 - [toolcalls.md](toolcalls.md): MCP tool call protocol and agent tool call details
 - [csv_schemas.md](csv_schemas.md): Canonical CSV schemas and data model
 
-# Documentation Index & Onboarding
-
-Welcome to the Multi-Agent Access Control Demo documentation! This index summarizes each doc and provides quick links for onboarding and reference.
 
 ## Key Docs
 
@@ -26,7 +23,7 @@ Welcome to the Multi-Agent Access Control Demo documentation! This index summari
 - [testWalkthrough.md](testWalkthrough.md): Step-by-step test/run walkthrough for verifying end-to-end flows.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Developer onboarding and contribution process.
 - [TODO.md](TODO.md): Living checklist mapping doc tasks to implementation status and priorities.
-- [usecase access control.md](usecase%20access%20control.md): Business-level overview and user stories for the access control use case.
+- [usecase changeManagement control.md]: Business-level overview and user stories for the change management control use case.
 - [visualFlowchart.mmd](visualFlowchart.mmd): Canonical workflow diagram (Mermaid format).
 
 ## Missing Docs (see TODO.md)
