@@ -1,0 +1,25 @@
+
+# UI
+streamlit>=1.28.0
+plotly>=5.15.0    # optional, remove if no charts
+
+# Data
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Azure AI Foundry (agents & project)
+azure-ai-agents
+azure-ai-projects
+azure-identity
+
+# Config
+python-dotenv
+
+# APIs & clients (optional but common)
+fastapi
+httpx
+pydantic
+
+# Testing
+pytest
+pytest-asyncio
