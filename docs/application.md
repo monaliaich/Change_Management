@@ -9,7 +9,7 @@
 
 # Quickstart & Onboarding
 
-To get started with the Multi-Agent Access Control Demo:
+To get started with the Multi-Agent Change Management Control Demo:
 
 For a high-level workflow overview, see `/docs/flow.md`. For UI wireframes and layouts, see `/docs/wireframe.md`. These files provide canonical sources for the process flow and user interface design.
 
