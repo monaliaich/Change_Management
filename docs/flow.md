@@ -12,26 +12,25 @@
 This document describes the canonical workflow and implementation plan for the IT Change Validation Pipeline, aligning data sources, validation steps, and exception handling. It incorporates the latest architectural choices: sequential validation, evidence retention, and AI-assisted exception recommendations. The workflow ensures compliance with ITSM approvals, CAB decisions, and CI/CD deployment logs.
 
 ## 2. High-Level Flow
-A. Start with extracting population from Change DB.
-B. Export approvals from ITSM Approvals.
-C. Validate IPE (Integrity of Process Execution) against schema.
-D. Reconcile ITSM dashboard.
-E. If IPE validation fails:
-     E.1. Log failure and alert.
-     E.2. Trigger remediation workflow.
-F. If IPE validation passes:
-     Enter Validation Pipeline:
-     F.1. Validate CI/CD vs ITSM logs.
-     F.2. Validate assessment fields.
-     F.3. Validate CAB/Owner approval pre-deploy.
-     F.4. Validate evidence retention.
-     F.5. Validate approver authorization (DOA).
-     F.6. Validate approved window.
-G. Handle exceptions: Log reason codes and generate AI recommendations.
-H. Generate summary and provide justification.
+- Start with extracting population from Change DB.
+- Export approvals from ITSM Approvals.
+- Validate IPE (Integrity of Process Execution) against schema.
+- Reconcile ITSM dashboard.
+- If IPE validation fails:
+    - Log failure and alert.
+    - Trigger remediation workflow.
+- If IPE validation passes: Enter Validation Pipeline:
+    - Validate CI/CD vs ITSM logs.
+    - Validate assessment fields.
+    - Validate CAB/Owner approval pre-deploy.
+    - Validate evidence retention.
+    - Validate approver authorization (DOA).
+    - Validate approved window.
+- Handle exceptions: Log reason codes and generate AI recommendations.
+- Generate summary and provide justification.
 
 3. **Detailed Implementation Steps** 
-3.1. **Data Sources** 
+**Data Sources** 
     - Change DB - Columns: change_id, change_wi, CI_link
     - ITSM Approvals - Columns: approval_status, approval_time, approval_group
     - CI/CD Logs - Columns: deployment_id, pipeline_id, status, started_at, finished_at
@@ -39,7 +38,7 @@ H. Generate summary and provide justification.
     - CAB Minutes - Columns: meeting_ref, decision_ref
     - DOA Register - Columns: approver_id, effective_from_to
 
-3.2. **Validation Pipeline Steps** 
+**Validation Pipeline Steps** 
     - VALIDATE: CI/CD vs ITSM (Logged?)
     - VALIDATE: Assessment fields present
     - VALIDATE: CAB/Owner approval pre-deploy
@@ -47,11 +46,11 @@ H. Generate summary and provide justification.
     - VALIDATE: Approver authorized (DOA)
     - VALIDATE: Within approved window
 
-3.3. **Exception Handling** 
-     A. Decision point: Any exceptions?
-       - Yes → Log exception with reason codes and AI-generated recommendation
-       - No → Generate summary and detailed exception log
-     B. Reviewer validates results and provides justification.
+**Exception Handling** 
+    1. Decision point: Any exceptions?
+         - Yes → Log exception with reason codes and AI-generated recommendation
+         - No → Generate summary and detailed exception log
+    2. Reviewer validates results and provides justification.
 
 ## 4. Example Workflow
 1. Extract population from Change DB.
