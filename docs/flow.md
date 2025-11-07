@@ -29,8 +29,9 @@ This document describes the canonical workflow and implementation plan for the I
 - Handle exceptions: Log reason codes and generate AI recommendations.
 - Generate summary and provide justification.
 
-3. **Detailed Implementation Steps** 
-**Data Sources** 
+## 3. Detailed Implementation Steps 
+
+1. **Data Sources** 
     - Change DB - Columns: change_id, change_wi, CI_link
     - ITSM Approvals - Columns: approval_status, approval_time, approval_group
     - CI/CD Logs - Columns: deployment_id, pipeline_id, status, started_at, finished_at
@@ -38,15 +39,15 @@ This document describes the canonical workflow and implementation plan for the I
     - CAB Minutes - Columns: meeting_ref, decision_ref
     - DOA Register - Columns: approver_id, effective_from_to
 
-**Validation Pipeline Steps** 
-    - VALIDATE: CI/CD vs ITSM (Logged?)
-    - VALIDATE: Assessment fields present
-    - VALIDATE: CAB/Owner approval pre-deploy
-    - VALIDATE: Approval evidence retained
-    - VALIDATE: Approver authorized (DOA)
-    - VALIDATE: Within approved window
+2. **Validation Pipeline Steps** 
+- VALIDATE: CI/CD vs ITSM (Logged?)
+- VALIDATE: Assessment fields present
+- VALIDATE: CAB/Owner approval pre-deploy
+- VALIDATE: Approval evidence retained
+- VALIDATE: Approver authorized (DOA)
+- VALIDATE: Within approved window
 
-**Exception Handling** 
+3. **Exception Handling** 
     1. Decision point: Any exceptions?
          - Yes → Log exception with reason codes and AI-generated recommendation
          - No → Generate summary and detailed exception log
