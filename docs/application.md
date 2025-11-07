@@ -4,7 +4,7 @@
 - [wireframe.md](wireframe.md): UI wireframes and layouts
 - [toolcalls.md](toolcalls.md): MCP tool call protocol and agent tool call details
 - [csv_schemas.md](csv_schemas.md): Canonical CSV schemas and data model
-- [CONTRIBUTING.md](CONTRIBUTING.md): Developer onboarding and contribution process
+- [CONTRIBUTING.md](https://github.com/monaliaich/Change_Management/blob/f73e3ec92fc0b7ea045beeeeb12771ade4b1b21e/docs/Contributing.md): Developer onboarding and contribution process
 - [README.md](README.md): Documentation index and onboarding
 
 # Quickstart & Onboarding
