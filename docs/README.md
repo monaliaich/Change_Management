@@ -26,6 +26,8 @@ Welcome to the Multi-Agent Change Management Control Demo documentation! This in
 - [usecase changeManagement control.md]: Business-level overview and user stories for the change management control use case.
 - [visualFlowchart.mmd](visualFlowchart.mmd): Canonical workflow diagram (Mermaid format).
 
+- [src_layout.md](src_layout.md): Description of the `src/` enterprise scaffold, package layout, and contributor conventions.
+
 ## Missing Docs (see TODO.md)
 - `agentsetup.md`: Referenced for setup steps, not yet present.
 - `CHANGELOG.md`: Referenced for changelog/dev diary, not yet present.
