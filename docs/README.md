@@ -28,6 +28,8 @@ Welcome to the Multi-Agent Change Management Control Demo documentation! This in
 
 - [src_layout.md](src_layout.md): Description of the `src/` enterprise scaffold, package layout, and contributor conventions.
 
+- [docs/azure_auth.md](docs/azure_auth.md): Authentication guide for local development and CI (az login, service principals, example script).
+
 ## Missing Docs (see TODO.md)
 - `agentsetup.md`: Referenced for setup steps, not yet present.
 - `CHANGELOG.md`: Referenced for changelog/dev diary, not yet present.
