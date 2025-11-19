@@ -1,148 +1,69 @@
-import asyncio
-from pathlib import Path
-from azure.identity import DefaultAzureCredential
-from azure.ai.agents import AgentsClient
-from dotenv import load_dotenv
-from azure.ai.agents.models import (
-    Agent,
-    AgentThread,
-    AsyncFunctionTool,
-    AsyncToolSet,
-    CodeInterpreterTool,
-    FileSearchTool,
-    MessageRole,
-    FilePurpose
-)
-import os, logging, sys
+import os
+import logging
+from agents.identify_change_migration_agent import IdentifyChangeMigrationAgent
+# Import other agents as you develop them
+# from sample_selection_agent import SampleSelectionAgent
+# from test_execution_agent import TestExecutionAgent
 
-## All logs with level INFO and above (INFO, WARNING, ERROR, CRITICAL) will be displayed.
-## DEBUG will be ignored.
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
-
-
-load_dotenv()
-
-
-# Validate required environment variables
-required = ["PROJECT_ENDPOINT", "AGENT_MODEL_DEPLOYMENT_NAME"]
-missing = [k for k in required if not os.environ.get(k)]
-if missing:
-    logger.error("Missing env vars: %s", ", ".join(missing))
-    sys.exit(2)
-
-# If validation passes, continue with your setup
-PROJECT_ENDPOINT = os.environ.get("PROJECT_ENDPOINT")
-AGENT_MODEL_DEPLOYMENT_NAME = os.environ.get("AGENT_MODEL_DEPLOYMENT_NAME")
-
-
-
-# Data Configuration
-DATA_SHEET_FILE = "data/input/change_migration_listing.csv"
-repo_root = Path(__file__).resolve().parents[1]
-data_file_path = repo_root / "src" /DATA_SHEET_FILE
-if not data_file_path.is_file():
-    logger.error("Data file not found at %s", data_file_path)
-    sys.exit(2)
-
-
-async def main():
-    # Agent client initialization
-    client = AgentsClient(
-        endpoint=PROJECT_ENDPOINT,
-        credential=DefaultAzureCredential(
-            exclude_environment_credential=True,
-            exclude_managed_identity_credential=True
-        )
+def setup_logging():
+    """Set up logging configuration for the main application."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler("audit_agents.log"),
+            logging.StreamHandler()
+        ]
     )
+    return logging.getLogger("AuditAgents")
 
-    # Fetch the data to be analyzed
-    directory = os.path.dirname(os.path.abspath(__file__))
-    data_file = os.path.join(directory, DATA_SHEET_FILE)
-    logger.info("Full data file path: %s", data_file)
-    data_file_path = Path(data_file)
-
-    with data_file_path.open('r') as file:
-        data = file.read() + "\n"
-
+def main():
+    """Main function to orchestrate the execution of audit agents."""
+    logger = setup_logging()
+    logger.info("Starting Audit Agents workflow")
     
-
-    with client:
+    # Define data directory
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "input")
     
-    # Upload data file
-        try:
-            file = client.files.upload_and_poll(
-                file_path=data_file_path,
-                purpose=FilePurpose.AGENTS
-            )
-            logger.info("Uploaded %s (id=%s)", file.filename, getattr(file, "id", None))
-        except Exception as exc:
-            logger.exception("Failed to upload data file: %s", exc)
-            sys.exit(2)
-
-        # Add tool
-        toolset = AsyncToolSet()
-        toolset.add(FileSearchTool())
-        toolset.add(CodeInterpreterTool(file_ids=[file.id]))
-
-        # Define an agent
-        agent = client.create_agent(
-            model=AGENT_MODEL_DEPLOYMENT_NAME,
-            name="IdentifyChangeMigrationAgent",
-            toolset=toolset,
-            instructions="You are a helpful AI assistant"
-        )
-        logger.info("AgentName: %s", agent.name)
-
-
-        #Create a thread for conversation
-        thread = client.threads.create()    
-
-        #Loop until user types 'exit'
-        while True:
-            user_input = await asyncio.to_thread(input, "User: ")
-            if user_input.lower() == 'exit':
-                break
-            if len(user_input.strip()) == 0:
-                print("Please enter a valid message.")
-                continue
-
-            # Send user input to the agent
-            message = client.messages.create(
-                thread_id=thread.id,
-                content=user_input,
-                role=MessageRole.USER
-            )
-
-            # Kick off the run 
-            run = client.runs.create_and_process(
-                thread_id=thread.id,
-                agent_id=agent.id
-            )
-
-            #Check the run status for failures
-            run_status = client.runs.get(thread_id=thread.id, run_id=run.id)
-            if run_status.status in ("failed", "cancelled", "expired"):
-                print(" The agent run failed or cancelled or expired. Please try again.", run.last_error)
-                break
-
-            #Show the latest response from the agent
-            logger.info("Agent is typing...")
-
-            
-            # Fetch the latest assistant reply
-            reply_text = client.messages.get_last_message_text_by_role(
-                    thread_id=thread.id,
-                    role=MessageRole.AGENT
-            )
-
-
-            # Get the agent's response
-            if reply_text:
-                print("Agent:", {reply_text.text.value})    
-
+    # Step 1: Run IdentifyChangeMigrationAgent
+    logger.info("Starting Step 1: Identify Change Migration Population")
+    identify_agent = IdentifyChangeMigrationAgent(data_dir=data_dir)
+    identify_result = identify_agent.run()
+    
+    if not identify_result:
+        logger.error("IdentifyChangeMigrationAgent failed. Stopping workflow.")
+        return False
+    
+    # Get the output file path from the agent
+    population_file = identify_agent.save_verified_population_file()
+    logger.info(f"Population file created: {population_file}")
+    
+    # Step 2: Run SampleSelectionAgent (when implemented)
+    # logger.info("Starting Step 2: Sample Selection")
+    # sample_agent = SampleSelectionAgent(data_dir=data_dir, population_file=population_file)
+    # sample_result = sample_agent.run()
+    # 
+    # if not sample_result:
+    #     logger.error("SampleSelectionAgent failed. Stopping workflow.")
+    #     return False
+    # 
+    # sample_file = sample_agent.get_sample_file()
+    # logger.info(f"Sample file created: {sample_file}")
+    
+    # Step 3: Run TestExecutionAgent (when implemented)
+    # logger.info("Starting Step 3: Test Execution")
+    # test_agent = TestExecutionAgent(data_dir=data_dir, sample_file=sample_file)
+    # test_result = test_agent.run()
+    # 
+    # if not test_result:
+    #     logger.error("TestExecutionAgent failed.")
+    #     return False
+    # 
+    # logger.info("Test execution completed successfully")
+    
+    logger.info("Audit Agents workflow completed successfully")
+    return True
 
 if __name__ == "__main__":
-    print("Starting async program...")
-    asyncio.run(main())
-    print("Program finished.")
+    success = main()
+    exit(0 if success else 1)
