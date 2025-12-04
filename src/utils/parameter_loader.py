@@ -34,7 +34,7 @@ class ExtractionParameterLoader:
                 return None
             
             # Validate required columns
-            required_columns = ['client_name', 'start_date', 'end_date', 'system_type']
+            required_columns = ['client_name', 'start_date', 'end_date', 'asset_name']
             missing_columns = [col for col in required_columns if col not in df.columns]
             
             if missing_columns:
@@ -59,7 +59,7 @@ class ExtractionParameterLoader:
                         'start_date': start_date,
                         'end_date': end_date
                     },
-                    'systems': [s.strip() for s in str(row['system_type']).split(',')],
+                    'systems': [s.strip() for s in str(row['asset_name']).split(',')],
                     'timestamp': datetime.now().isoformat(),
                     'extracted_by': 'IdentifyChangeMigrationAgent',
                     'parameter_file_used': os.path.basename(self.parameter_file_path)

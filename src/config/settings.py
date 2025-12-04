@@ -27,21 +27,48 @@ REQUIRED_COLUMNS = {
     "change_migration_listing": [
         "Change_ID", "Title", "Change_Type", "Risk_Rating", 
         "Requestor", "Approver", "Migration_DateTime", 
-        "Deployment_Method", "Status", "Source_System"
+        "Deployment_Method", "Status", "Source_System", "Asset_Name"
     ],
     "extraction_parameters": [
-        "client_name", "start_date", "end_date", "system_type"
+        "client_name", "start_date", "end_date", "asset_name"
     ]
 }
 
 # Validation rules
+# Validation rules for change migration data
 VALIDATION_RULES = {
+    "Change_ID": {
+        "required": True,
+        "unique": True
+    },
+    "Implementation_Timestamp": {
+        "required": True,
+        "date_format": "%Y-%m-%d"
+    },
+    "Risk_Rating": {
+        "allowed_values": ["H", "M", "L", "High", "Medium", "Low"]
+    },
+    "Change_Type": {
+        "allowed_values": ["application", "infrastructure", "configuration", "app", "infra", "config"]
+    },
+    "Status": {
+        "allowed_values": ["Completed", "Closed"]
+    },
+    "Asset_Name": {
+        "required": True
+    },
+    "Source_System": {
+        "required": True
+    }
+}
+
+"""VALIDATION_RULES = {
     "Change_ID": {"unique": True, "null": False},
-    "Migration_DateTime": {"date_range": True},
+    "Implementation_Timestamp": {"date_range": True},
     "Risk_Rating": {"allowed_values": ["High", "Medium", "Low", "H", "M", "L"]},
     "Change_Type": {"allowed_values": ["application", "infrastructure", "configuration", "app", "infra", "config"]},
     "Status": {"allowed_values": ["Completed", "Closed", "Deployed", "Rolled Back"]}
-}
+}"""
 
 # Metadata fields
 METADATA_FIELDS = [

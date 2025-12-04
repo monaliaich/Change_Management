@@ -1,0 +1,10 @@
+Role;Authorized_Applications;Authorized_CI_ Scope;Authorized_Change_Types;Risk_Threshold
+Change Manager;All Applications;All CI Items;Standard, Emergency,;High
+IT Manager;Payroll;App & DB CI Items;Standard;Medium
+IT Manager;General Ledger;App & DB CI Items;Standard;Medium
+IT Manager;Accounts Payable;App & DB CI Items;Standard;Medium
+IT Manager;Accounts Receivable;App & DB CI Items;Standard;Medium
+Release Manager;API Gateway;App CI Items;Standard;Low
+Release Manager;Reporting;App CI Items;Standard;Low
+Release Manager;eCommerce;App CI Items;Standard;Low
+Developer;None;None;None;None

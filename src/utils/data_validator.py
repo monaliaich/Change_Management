@@ -31,6 +31,7 @@ class DataValidator:
         # Run all validation checks
         self._validate_unique_change_id()
         self._validate_date_range()
+        self._validate_asset_name() 
         self._validate_allowed_values()
         self._validate_record_count()
         
@@ -45,6 +46,28 @@ class DataValidator:
             
         return self.validation_results   
 
+    
+    def _validate_asset_name(self):
+        """Validate that Asset Name matches the requested parameter value"""
+        if "Asset_Name" not in self.data.columns:
+            self.validation_results["errors"].append("Asset_Name column is missing")
+            return
+        
+        if not self.extraction_params or "asset_name" not in self.extraction_params:
+            self.validation_results["warnings"].append("No asset name specified for validation")
+            return
+        
+        requested_asset = self.extraction_params["asset_name"]
+
+        # comparison for single asset
+        mismatched = self.data[self.data["Asset_Name"] != requested_asset]
+    
+        if len(mismatched) > 0:
+            self.validation_results["errors"].append(
+                f"Found {len(mismatched)} records with Asset_Name not matching the requested asset: {requested_asset}"
+            )
+     
+    
     def _validate_unique_change_id(self):
         """Validate that Change_ID is unique"""
         if "Change_ID" not in self.data.columns:
@@ -60,6 +83,7 @@ class DataValidator:
         duplicate_ids = self.data["Change_ID"].duplicated().sum()
         if duplicate_ids > 0:
             self.validation_results["errors"].append(f"Found {duplicate_ids} duplicate Change_ID values")
+    
     
     def _validate_date_range(self):
         """Validate that Migration_DateTime is within the specified period"""

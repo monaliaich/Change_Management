@@ -4,7 +4,7 @@ import os
 import logging
 import sys
 import pandas as pd
-from datetime import datetime
+from datetime import datetime as dt
 import hashlib
 import json
 import logging
@@ -29,10 +29,11 @@ class IdentifyChangeMigrationAgent:
     logger = logging.getLogger(__name__)
     logger.info("This is a log message.")
 
-    def __init__(self, data_dir="./data/input"):
+    def __init__(self, data_dir="./data/input", output_data_dir="./data/output"):
         self.name = "IdentifyChangeMigrationAgent"
         self.logger = logging.getLogger(self.name)
         self.data_dir = data_dir
+        self.output_data_dir=output_data_dir
         self.extraction_params = None
         self.parameters = {}  # Initialize as empty dictionary
         self.migration_data = None
@@ -139,7 +140,7 @@ class IdentifyChangeMigrationAgent:
                 self.logger.warning("Parameters not initialized, using empty dictionary")
 
             # Load the change migration data
-            migration_data_path = os.path.join(self.data_dir, "change_migration_listing.csv")
+            migration_data_path = os.path.join(self.data_dir, "c1_change_migration_population_v1.csv")
             if not os.path.exists(migration_data_path):
                 raise FileNotFoundError(f"Change migration data file not found at {migration_data_path}")
             
@@ -148,10 +149,10 @@ class IdentifyChangeMigrationAgent:
             self.logger.info(f"Loaded {len(migration_data)} records from change migration data")          
             self.logger.info(f"columns in migration data:  {migration_data.columns}")
 
-            # Check if required columns exist (use names normalized above)
-            required_columns = ['Migration_DateTime', 'Source_System']
+            # Check if required columns exist (use names normalized above) #Implementation_Timestamp
+            required_columns = ['Implementation_Timestamp', 'Asset_Name']
             missing_columns = [col for col in required_columns if col not in migration_data.columns]
-           
+        
             if missing_columns:
                 self.logger.error(f"Missing required columns in data: {missing_columns}")
                 return False
@@ -161,38 +162,49 @@ class IdentifyChangeMigrationAgent:
 
             # Filter by date range if provided
             if 'Start Date' in self.parameters and 'End Date' in self.parameters:
-                start_date = pd.to_datetime(self.parameters['Start Date'])
-                end_date = pd.to_datetime(self.parameters['End Date'])
-            
+                start_date = pd.to_datetime(self.parameters['Start Date'], format='%d-%m-%Y %H:%M', errors='coerce')
+                end_date = pd.to_datetime(self.parameters['End Date'], format='%d-%m-%Y %H:%M', errors='coerce')
+                self.logger.info(f"Parsed start_date: {start_date}, end_date: {end_date}")
+
                 # Ensure migration date is in datetime format
                 try:
-                    filtered_data['Migration Date'] = pd.to_datetime(filtered_data['Migration_DateTime'], errors='coerce')
+                    filtered_data['Implementation_Timestamp_DT'] = pd.to_datetime(
+                        filtered_data['Implementation_Timestamp'], 
+                        format='%d-%m-%Y %H:%M', 
+                        errors='coerce'
+                    )
                     
                     # Drop rows with invalid dates
-                    invalid_dates = filtered_data['Migration Date'].isna()
+                    invalid_dates = filtered_data['Implementation_Timestamp_DT'].isna()
 
                     if invalid_dates.any():
                         self.logger.warning(f"Dropping {invalid_dates.sum()} rows with invalid dates")
-                        filtered_data = filtered_data.dropna(subset=['Migration Date'])
+                        filtered_data = filtered_data.dropna(subset=['Implementation_Timestamp_DT'])
+
 
                     # Filter by date range
                     filtered_data = filtered_data[
-                        (filtered_data['Migration Date'] >= start_date) & 
-                        (filtered_data['Migration Date'] <= end_date)
+                        (filtered_data['Implementation_Timestamp_DT'] >= start_date) & 
+                        (filtered_data['Implementation_Timestamp_DT'] <= end_date)
                     ]
                     
-                    self.logger.info(f"Filtered by date range: {start_date} to {end_date}")    
+                    self.logger.info(f"Filtered by date range: {start_date} to {end_date}, records remaining: {len(filtered_data)}")     
 
                 except Exception as e:
                     self.logger.error(f"Error processing Migration Date: {str(e)}")               
                 
-            # Filter by system type if provided
-            if 'System Type' in self.parameters and self.parameters['System Type']:
-                system_types = self.parameters['System Type'].split(',')
-                system_types = [s.strip() for s in system_types]
-            
-                filtered_data = filtered_data[filtered_data['Source_System'].isin(system_types)]
-                self.logger.info(f"Filtered by system types: {system_types}")
+            # Filter by Asset Name if provided
+            if 'Asset Name' in self.parameters and self.parameters['Asset Name']:
+                asset_names = self.parameters['Asset Name'].split(',')
+                asset_names = [s.strip() for s in asset_names]
+
+                self.logger.info(f"Asset names to filter: {asset_names}")
+                self.logger.info(f"Unique Asset_Name values in data: {filtered_data['Asset_Name'].unique().tolist()}")
+
+                before_count = len(filtered_data)
+                filtered_data = filtered_data[filtered_data['Asset_Name'].isin(asset_names)]
+                after_count = len(filtered_data)
+                self.logger.info(f"Filtered by asset names: {asset_names}, records before: {before_count}, after: {after_count}")
 
             # Check if we have any records after filtering
             if len(filtered_data) == 0:
@@ -203,8 +215,8 @@ class IdentifyChangeMigrationAgent:
             # Explicitly set self.migration_data
             self.migration_data = filtered_data.copy()           
             self.logger.info(f"Set self.migration_data with {len(self.migration_data)} records")
-        
-            return filtered_data       
+    
+            return filtered_data         
 
         except Exception as e:
             self.logger.error(f"Error extracting change migration list: {str(e)}")
@@ -221,32 +233,46 @@ class IdentifyChangeMigrationAgent:
         
         try:
             self.logger.info("Validating and cleaning data")
-            validator = DataValidator()
-            
-            # Define validation rules
-            validation_rules = {
-                'Change ID': {'unique': True, 'null': False},
-                'Migration Date': {'date_format': '%Y-%m-%d', 'in_range': [self.parameters.get('Start Date'), self.parameters.get('End Date')]},
-                'Risk Rating': {'allowed_values': ['H', 'M', 'L', 'High', 'Medium', 'Low']},
-                'Change Type': {'allowed_values': ['application', 'infrastructure', 'configuration', 'app', 'infra', 'config']},
-                'Status': {'allowed_values': ['Completed', 'Closed']}
+        
+            # Create extraction parameters dictionary for the validator
+            extraction_params = {
+                "date_range": {
+                    "start_date": self.parameters.get('Start Date'),
+                    "end_date": self.parameters.get('End Date')
+                },
+                "source_system": self.parameters.get('Asset Name')
             }
+        
+            self.logger.info(f"Using extraction parameters for validation: {extraction_params}")
             
-            # Validate data
-            validation_results = validator.validate_dataframe(self.migration_data, validation_rules)
-            
-            if not validation_results['valid']:
+            # Create validator with data and parameters
+            validator = DataValidator(data=self.migration_data, extraction_params=extraction_params)
+            # Run validation
+            validation_results = validator.validate()
+
+            # Store validation results in metadata
+            self.metadata['validation_results'] = {
+                'is_valid': validation_results['is_valid'],
+                'errors': validation_results['errors'],
+                'warnings': validation_results['warnings']
+            }
+
+            # Log validation results
+            if not validation_results['is_valid']:
                 self.logger.warning(f"Data validation failed: {validation_results['errors']}")
-                # Store validation errors in metadata
-                self.metadata['validation_errors'] = validation_results['errors']
-                
-                # Clean data based on validation results
-                self.migration_data = validator.clean_dataframe(self.migration_data, validation_results)
-                self.logger.info(f"Data cleaned. {len(self.migration_data)} records remaining.")
+                if validation_results['warnings']:
+                    self.logger.info(f"Validation warnings: {validation_results['warnings']}")
             else:
                 self.logger.info("Data validation passed")
-            
-            return True
+                if validation_results['warnings']:
+                    self.logger.info(f"Validation warnings: {validation_results['warnings']}")
+
+
+            # Get cleaned data
+            self.migration_data = validator.get_clean_data()
+            self.logger.info(f"Data cleaned. {len(self.migration_data)} records remaining.")
+        
+            return True        
             
         except Exception as e:
             self.logger.error(f"Error validating and cleaning data: {str(e)}")
@@ -285,17 +311,18 @@ class IdentifyChangeMigrationAgent:
             """
             Assembles metadata for the verified population file.
             """
+            
             try:
                 self.logger.info("Assembling metadata")
-            
+        
                 # Add timestamp
-                self.metadata['extraction_timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
+                self.metadata['extraction_timestamp'] = dt.now().strftime('%Y-%m-%d %H:%M:%S')
+                print (f"DateTimeStamp {self.metadata['extraction_timestamp']}")
                 # Add extracted by
                 self.metadata['extracted_by'] = 'IdentifyChangeMigrationAgent'
             
                 # Add system name
-                self.metadata['system_name'] = self.parameters.get('System Type', 'All')
+                self.metadata['asset_name'] = self.parameters.get('Asset Name', 'All')
             
                 # Add environment
                 self.metadata['environment'] = 'Development'
@@ -319,24 +346,27 @@ class IdentifyChangeMigrationAgent:
                 self.logger.info("Saving verified population file")
             
                 # Create output directory if it doesn't exist
-                output_dir = os.path.join(self.data_dir, "output")
+                output_dir = os.path.join(self.output_data_dir, "verified_populations")
                 os.makedirs(output_dir, exist_ok=True)
-            
-                # Generate filename with timestamp
-                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+                self.logger.info(f"Absolute output_dir path of output file: {output_dir}")
+
+                # Generate filename WITHOUT timestamp
+                # timestamp = dt.now().strftime('%Y%m%d_%H%M%S')  # REMOVE THIS LINE
                 client_name = self.parameters.get('Client Name', 'client')
-                filename = f"{client_name}_verified_population_{timestamp}.xlsx"
+                # CHANGE THIS LINE:
+                filename = f"{client_name}_verified_population.xlsx"  # Removed timestamp
                 output_path = os.path.join(output_dir, filename)
             
                 # Create Excel writer
                 with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                     # Write data to sheet1
                     self.migration_data.to_excel(writer, sheet_name='Population Data', index=False)
-                
+        
                     # Write metadata to sheet2
                     metadata_df = pd.DataFrame(list(self.metadata.items()), columns=['Key', 'Value'])
                     metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
-            
+    
                 self.logger.info(f"Verified population file saved to {output_path}")
                 return output_path
             

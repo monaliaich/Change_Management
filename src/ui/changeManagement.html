@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Change Management Audit Dashboard</title>
+    <style>
+        /* Common styles */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .section {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        
+        .section h2 {
+            margin-top: 0;
+            color: #3498db;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        
+        input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100px;
+        }
+        
+        .radio-group {
+            margin: 10px 0;
+        }
+        
+        .button-group {
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        #stopButton {
+            background-color: #e74c3c;
+        }
+        
+        #stopButton:hover {
+            background-color: #c0392b;
+        }
+        
+        .status-running {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .status-stopped {
+            color: #7f8c8d;
+        }
+        
+        .status-error {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .log {
+            height: 200px;
+            overflow-y: scroll;
+            background: #f9f9f9;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 2px;
+        }
+        
+        .log-time {
+            color: #7f8c8d;
+            margin-right: 10px;
+        }
+        
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        
+        .nav-links a {
+            display: inline-block;
+            padding: 8px 16px;
+            margin-right: 10px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        .nav-links a:hover {
+            background-color: #2980b9;
+        }
+        
+        .nav-links a.active {
+            background-color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Change Management Audit Dashboard</h1>
+        
+        <div class="nav-links">
+            <a href="/" class="active">Dashboard</a>
+            <a href="/population">Verified Population</a>
+            <a href="/violations">SOD Violations</a>
+        </div>
+        
+        <div class="section">
+            <h2>Execution Mode</h2>
+            <div class="radio-group">
+                <input type="radio" name="mode" id="runOnce" value="once">
+                <label for="runOnce" style="width: auto;">Run Once</label>
+                
+                <input type="radio" name="mode" id="runPeriodic" value="periodic" checked>
+                <label for="runPeriodic" style="width: auto;">Run Periodically</label>
+            </div>
+            <div id="periodicOptions" class="form-group">
+                <label for="interval">Interval (minutes):</label>
+                <input type="number" id="interval" value="5" min="1">
+                
+                <label for="duration" style="width: 150px; margin-left: 10px;">Duration (minutes):</label>
+                <input type="number" id="duration" value="60" min="0">
+                <span>(0 for indefinite)</span>
+            </div>
+            <div class="button-group">
+                <button id="startButton">Start Audit Process</button>
+                <button id="stopButton" disabled>Stop</button>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Status and Results</h2>
+            <div id="statusDisplay" class="status-stopped">Status: Not running</div>
+            <div id="nextRunDisplay"></div>
+            <div id="lastRunDisplay">Last Run: None</div>
+            <div id="resultsDisplay"></div>
+            <div class="button-group">
+                <button id="viewPopulationButton" disabled onclick="window.location.href='/population'">View Population</button>
+                <button id="viewViolationsButton" disabled onclick="window.location.href='/violations'">View Violations</button>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Log Output:</h2>
+            <div id="logOutput" class="log"></div>
+        </div>
+    </div>
+    
+    <script>
+        // DOM elements
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const viewPopulationButton = document.getElementById('viewPopulationButton');
+        const viewViolationsButton = document.getElementById('viewViolationsButton');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const nextRunDisplay = document.getElementById('nextRunDisplay');
+        const lastRunDisplay = document.getElementById('lastRunDisplay');
+        const resultsDisplay = document.getElementById('resultsDisplay');
+        const logOutput = document.getElementById('logOutput');
+        
+        // Toggle periodic options visibility based on mode selection
+        document.getElementById('runOnce').addEventListener('change', () => {
+            document.getElementById('periodicOptions').style.display = 'none';
+        });
+        
+        document.getElementById('runPeriodic').addEventListener('change', () => {
+            document.getElementById('periodicOptions').style.display = 'block';
+        });
+        
+        // Event listeners
+        startButton.addEventListener('click', startAudit);
+        stopButton.addEventListener('click', stopAudit);
+        
+        // Status polling
+        let statusInterval;
+        
+        function startStatusPolling() {
+            statusInterval = setInterval(fetchStatus, 2000);
+        }
+        
+        function stopStatusPolling() {
+            clearInterval(statusInterval);
+        }
+        
+        // Functions
+        function startAudit() {
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const interval = parseInt(document.getElementById('interval').value);
+            const duration = parseInt(document.getElementById('duration').value);
+            
+            // Validate inputs
+            if (interval < 1) {
+                addLog('Error: Interval must be at least 1 minute');
+                return;
+            }
+            
+            // Prepare request data
+            const requestData = {
+                mode: mode,
+                interval: interval,
+                duration: duration
+            };
+            
+            // Send request to start audit
+            fetch('/api/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    addLog('Audit process started');
+                    updateUIState(true);
+                    startStatusPolling();
+                } else if (data.status === 'completed') {
+                    addLog('Audit process completed');
+                    fetchResults();
+                } else if (data.status === 'already_running') {
+                    addLog('Audit process is already running');
+                }
+            })
+            .catch(error => {
+                addLog('Error starting audit: ' + error);
+            });
+        }
+        
+        function stopAudit() {
+            fetch('/api/stop', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'stopping') {
+                    addLog('Stopping audit process...');
+                } else {
+                    addLog('Audit process was not running');
+                }
+            })
+            .catch(error => {
+                addLog('Error stopping audit: ' + error);
+            });
+        }
+        
+        function fetchStatus() {
+            fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                updateUIState(data.is_running);
+                
+                if (data.next_run) {
+                    nextRunDisplay.textContent = `Next run: ${data.next_run}`;
+                } else {
+                    nextRunDisplay.textContent = '';
+                }
+                
+                if (data.last_run) {
+                    lastRunDisplay.textContent = `Last Run: ${data.last_run}`;
+                    viewPopulationButton.disabled = false;
+                    viewViolationsButton.disabled = false;
+                }
+                
+                // Update logs
+                if (data.logs && data.logs.length > 0) {
+                    updateLogs(data.logs);
+                }
+                
+                // If not running anymore but we're polling, stop polling
+                if (!data.is_running && statusInterval) {
+                    stopStatusPolling();
+                    fetchResults(); // Get final results
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching status:', error);
+            });
+        }
+        
+        function fetchResults() {
+            fetch('/api/results')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'no_results') {
+                    resultsDisplay.textContent = 'No results available';
+                } else {
+                    resultsDisplay.textContent = `Results: Processed ${data.records_processed} records, found ${data.violations_found} violations`;
+                    viewPopulationButton.disabled = false;
+                    viewViolationsButton.disabled = false;
+                    
+                    // Store results in session storage for other pages
+                    sessionStorage.setItem('auditResults', JSON.stringify(data));
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching results:', error);
+            });
+        }
+        
+        function updateUIState(isRunning) {
+            if (isRunning) {
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                statusDisplay.textContent = 'Status: Running';
+                statusDisplay.className = 'status-running';
+            } else {
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                statusDisplay.textContent = 'Status: Not running';
+                statusDisplay.className = 'status-stopped';
+            }
+        }
+        
+        function updateLogs(logs) {
+            // Clear existing logs
+            logOutput.innerHTML = '';
+            
+            // Add new logs
+            logs.forEach(log => {
+                addLogToUI(log);
+            });
+        }
+        
+        function addLog(message) {
+            const now = new Date();
+            const timeString = now.toTimeString().split(' ')[0];
+            const logMessage = `${timeString} - ${message}`;
+            
+            addLogToUI(logMessage);
+        }
+        
+        function addLogToUI(logMessage) {
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.textContent = logMessage;
+            
+            logOutput.appendChild(logEntry);
+            logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll to bottom
+        }
+        
+        // Initialize
+        addLog('Change Management Audit Tool initialized');
+        addLog('Ready to start audit process');
+    </script>
+</body>
+</html>
