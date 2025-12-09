@@ -4,6 +4,7 @@ import os
 import logging
 import sys
 import pandas as pd
+from utils.data_extractor import DataExtractor
 from datetime import datetime as dt
 import hashlib
 import json
@@ -33,13 +34,16 @@ class IdentifyChangeMigrationAgent:
         self.name = "IdentifyChangeMigrationAgent"
         self.logger = logging.getLogger(self.name)
         self.data_dir = data_dir
-        self.output_data_dir=output_data_dir
+        self.output_data_dir = output_data_dir
         self.extraction_params = None
         self.parameters = {}  # Initialize as empty dictionary
         self.migration_data = None
         self.change_data = None
         self.metadata = {}
         self.parameter_loader = ExtractionParameterLoader(PARAMETER_FILE_PATH)
+
+        # Initialize the data extractor
+        self.data_extractor = DataExtractor(data_dir, output_data_dir)
 
         # Validate required environment variables
         required = ["PROJECT_ENDPOINT", "AGENT_MODEL_DEPLOYMENT_NAME"]
@@ -139,33 +143,28 @@ class IdentifyChangeMigrationAgent:
                 self.parameters = {}
                 self.logger.warning("Parameters not initialized, using empty dictionary")
 
-            # Load the change migration data
-            migration_data_path = os.path.join(self.data_dir, "c1_change_migration_population_v1.csv")
-            if not os.path.exists(migration_data_path):
-                raise FileNotFoundError(f"Change migration data file not found at {migration_data_path}")
+            # Load the change migration data using the extractor
+            migration_data, success = self.data_extractor.load_change_migration_data()
             
-            # CSV uses semicolon as delimiter; read with explicit separator
-            migration_data = pd.read_csv(migration_data_path, sep=';')
-            self.logger.info(f"Loaded {len(migration_data)} records from change migration data")          
-            self.logger.info(f"columns in migration data:  {migration_data.columns}")
-
-            # Check if required columns exist (use names normalized above) #Implementation_Timestamp
-            required_columns = ['Implementation_Timestamp', 'Asset_Name']
-            missing_columns = [col for col in required_columns if col not in migration_data.columns]
-        
-            if missing_columns:
-                self.logger.error(f"Missing required columns in data: {missing_columns}")
+            if not success:
+                self.logger.error("Failed to load change migration data")
                 return False
-        
+            
             # Apply filters based on extraction parameters
             filtered_data = migration_data.copy()
+            # Flag to track if any filters were applied
+            filters_applied = False
 
             # Filter by date range if provided
-            if 'Start Date' in self.parameters and 'End Date' in self.parameters:
+            if ('Start Date' in self.parameters and self.parameters['Start Date'] and 
+                'End Date' in self.parameters and self.parameters['End Date']):
+
+                filters_applied = True
+
                 start_date = pd.to_datetime(self.parameters['Start Date'], format='%d-%m-%Y %H:%M', errors='coerce')
                 end_date = pd.to_datetime(self.parameters['End Date'], format='%d-%m-%Y %H:%M', errors='coerce')
                 self.logger.info(f"Parsed start_date: {start_date}, end_date: {end_date}")
-
+             
                 # Ensure migration date is in datetime format
                 try:
                     filtered_data['Implementation_Timestamp_DT'] = pd.to_datetime(
@@ -195,6 +194,7 @@ class IdentifyChangeMigrationAgent:
                 
             # Filter by Asset Name if provided
             if 'Asset Name' in self.parameters and self.parameters['Asset Name']:
+                filters_applied = True
                 asset_names = self.parameters['Asset Name'].split(',')
                 asset_names = [s.strip() for s in asset_names]
 
@@ -205,6 +205,12 @@ class IdentifyChangeMigrationAgent:
                 filtered_data = filtered_data[filtered_data['Asset_Name'].isin(asset_names)]
                 after_count = len(filtered_data)
                 self.logger.info(f"Filtered by asset names: {asset_names}, records before: {before_count}, after: {after_count}")
+
+            # Log if no filters were applied
+            if not filters_applied:
+                self.logger.info("No filters applied - returning all records")
+                self.migration_data = migration_data.copy()
+                return migration_data
 
             # Check if we have any records after filtering
             if len(filtered_data) == 0:
@@ -384,22 +390,26 @@ class IdentifyChangeMigrationAgent:
             # Step 1: Load extraction parameters
             success = self.load_extraction_parameters()
             if not success:
-                self.logger.error("Failed to load extraction parameters")
-                return False
+                self.logger.warning("Failed to load extraction parameters, continuing with empty parameters")
+                self.parameters = {}  # Ensure parameters is initialized as empty dict
             
-            # Verify parameters were loaded
-            if not self.parameters:
-                self.logger.error("Parameters were not loaded properly")
-                return False
+            # Verify parameters were initialized (even if empty)
+            if not hasattr(self, 'parameters'):
+                self.logger.warning("Parameters attribute not found, initializing as empty dictionary")
+                self.parameters = {}
             
             self.logger.info(f"Using parameters: {self.parameters}")
             
             # Step 2: Extract change migration list
             migration_data = self.extract_change_migration_list()
             self.logger.info(f"Using Migration Data: {self.migration_data}")
+            
+            # Check if migration_data is None or empty
             if self.migration_data is None or len(self.migration_data) == 0:
                 self.logger.warning("No records found for the specified period and filters")
                 return False
+        
+            self.logger.info(f"Using Migration Data: {len(self.migration_data)} records")
             
             # Step 3: Validate and clean data
             self.validate_and_clean_data()

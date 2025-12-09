@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 #from azure.identity import DefaultAzureCredential
 from azure.identity import AzureCliCredential
 from config.settings import DATA_INPUT_PATH, DATA_OUTPUT_PATH
-
+from utils.data_extractor import DataExtractor
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 os.environ['PYTHONHTTPSVERIFY'] = '0'
@@ -38,13 +38,10 @@ class SODViolationDetectionAgent:
     Agent responsible for detecting Segregation of Duties (SOD) violations in change management processes.
     
     This agent performs the following tasks:
-    1. Load change migration population data from verified population file
-    2. Load approval workflow data
-    3. Load deployment log data
-    4. Load DOA matrix data
-    5. Identify SOD violations by comparing roles
-    6. Generate violation report with detailed reasons
-    7. Save the violation report with metadata
+
+    1. Identify SOD violations by comparing roles
+    2. Generate violation report with detailed reasons
+    3. Save the violation report with metadata
     """
 
     def __init__(self, data_dir="./data/input", output_data_dir="./data/output", 
@@ -63,7 +60,11 @@ class SODViolationDetectionAgent:
         self.approval_workflow_data = None
         self.deployment_log_data = None
         self.doa_matrix_data = None
+        self.iam_users_data = None
         self.violations_data = None
+
+        # Initialize the data extractor
+        self.data_extractor = DataExtractor(data_dir, output_data_dir)
         
         # Validate required environment variables
         required = ["PROJECT_ENDPOINT", "AGENT_MODEL_DEPLOYMENT_NAME"]
@@ -243,11 +244,19 @@ class SODViolationDetectionAgent:
         # Process batches asynchronously
         batch_results = asyncio.run(self._process_batches_async(batches))
 
-         # Flatten results
+        # Flatten results
+        self.logger.info(f"Received {len(batch_results)} batch results")
+        for results in batch_results:
+            self.logger.info(f"Batch {i+1} returned {len(results)} results")
+            if results and len(results) > 0:
+                self.logger.info(f"Sample result keys: {list(results[0].keys())}")
+
+        # Flatten results
         for results in batch_results:
             if results:
                 all_results.extend(results)   
 
+        self.logger.info(f"Total results after flattening: {len(all_results)}")
         return all_results         
 
     async def _process_batches_async(self, batches):
@@ -343,6 +352,8 @@ class SODViolationDetectionAgent:
             - If any two or more roles have the same ID, this is a violation
             - If all four roles have the same ID, this is a high-risk violation
 
+            EXTREMELY IMPORTANT: You MUST analyze and return results for EVERY record in the input data. Do not skip any records.
+
             For each violation found, provide:
             1. Change_ID 
             2. Asset_Name
@@ -376,7 +387,12 @@ class SODViolationDetectionAgent:
             - status
             - exception_reason
 
-            Include ALL records in your response, both those with violations and those without.
+            For each violation found, format the exception_reason field EXACTLY as follows:
+            - For each role pair that shares the same ID, include: "[Role1] and [Role2] share the same ID ([ID])"
+            - Separate multiple violations with semicolons
+            Example: "Requestor and Developer share the same ID (USR001); Developer and Approver share the same ID (USR001)"
+
+            Return your analysis as a JSON array of objects, with each object containing the fields listed above.
 
             IMPORTANT: You must return ALL records that were provided to you, with no omissions.
             If there are multiple records, make sure to include every single one in your response.
@@ -779,7 +795,7 @@ class SODViolationDetectionAgent:
         """
         Process AI results and handle missing records.
         """
-        
+        # Check if results are empty
         if not all_results:
             self.logger.warning("No results returned from AI analysis")
             self.violations_data = pd.DataFrame(columns=[
@@ -792,18 +808,41 @@ class SODViolationDetectionAgent:
             ])
             return
 
-        # Check for missing records
-        processed_ids = set(result['change_id'] for result in all_results)
+        # Check the structure of the first result to determine the key name
+        sample_result = all_results[0]
+        change_id_key = None
+
+        # Look for possible change ID key names
+        possible_keys = ['change_id', 'Change_ID', 'change_ID', 'ChangeID', 'changeId', 'id']
+        for key in possible_keys:
+            if key in sample_result:
+                change_id_key = key
+                self.logger.info(f"Using '{change_id_key}' as the change ID key")
+                break
+
+        if not change_id_key:
+            # If no recognized key is found, print the keys that are available
+            self.logger.warning(f"Could not find change ID key in results. Available keys: {list(sample_result.keys())}")
+            # Try to use the first key as the change ID (as a fallback)
+            if sample_result:
+                change_id_key = list(sample_result.keys())[0]
+                self.logger.info(f"Using '{change_id_key}' as the change ID key")
+            else:
+                self.logger.error("Error: Empty result dictionary")
+                return    
+
+        # Check for missing records - USE THE IDENTIFIED KEY HERE
+        processed_ids = set(result[change_id_key] for result in all_results if change_id_key in result)
         original_ids = set(merged_df['Change_ID'])
         missing_ids = original_ids - processed_ids   
+
 
         if missing_ids:
             self.logger.warning(f"Some records were not processed: {missing_ids}")
             # Add missing records with a note
             for missing_id in missing_ids:
                 missing_record = merged_df[merged_df['Change_ID'] == missing_id].iloc[0]
-                all_results.append({
-                    'change_id': missing_record['Change_ID'],
+                missing_result = {
                     'asset_name': missing_record['Asset_Name'],
                     'requestor_id': missing_record['Requestor_ID'],
                     'requestor_name': missing_record['Requestor_Name'],
@@ -815,15 +854,18 @@ class SODViolationDetectionAgent:
                     'approval_name': missing_record['Approver_Name'],
                     'status': 'Unknown',
                     'exception_reason': 'Record not processed by AI analysis'
-                })
+                }
+                # Use the identified key for the change ID
+                missing_result[change_id_key] = missing_record['Change_ID']
+                all_results.append(missing_result)
         # Create a DataFrame from the results
-        results_df = pd.DataFrame(all_results) 
+        results_df = pd.DataFrame(all_results)  
 
         # Merge with original data to get all relevant fields
         self.violations_data = pd.merge(
             results_df,
             merged_df,
-            left_on=['change_id', 'asset_name'],
+            left_on=[change_id_key, 'asset_name'],
             right_on=['Change_ID', 'Asset_Name'],
             how='left'
         )
@@ -832,14 +874,14 @@ class SODViolationDetectionAgent:
         self.violations_data = self.violations_data.rename(columns={
             'status': 'Status',
             'exception_reason': 'Exception_Reason'
-        }) 
+        })
 
         # Drop duplicate columns
-        if 'change_id' in self.violations_data.columns:
-            self.violations_data = self.violations_data.drop(columns=['change_id', 'asset_name'])
-    
+        if change_id_key in self.violations_data.columns:
+            self.violations_data = self.violations_data.drop(columns=[change_id_key, 'asset_name'])
+
         # Standardize exception reasons
-        self._standardize_exception_reasons()   
+        self._standardize_exception_reasons()     
 
         self.logger.info(f"Total records analyzed by AI: {len(self.violations_data)}")
         self.logger.info(f"Records with violations: {len(self.violations_data[self.violations_data['Status'] == 'Exception'])}")
@@ -906,178 +948,47 @@ class SODViolationDetectionAgent:
         """
         Load change migration population data from verified population file.
         """
-        try:
-            self.logger.info("Loading verified population data")
-            
-            if not self.verified_population_file:
-                # Find the verified population file with constant name
-                verified_pop_dir = os.path.join(self.output_data_dir, "verified_populations")
-                if not os.path.exists(verified_pop_dir):
-                    self.logger.error(f"Verified populations directory not found at {verified_pop_dir}")
-                    return False
-                
-                # Look for the constant filename instead of the latest file
-                client_name = "Capgemini"  # You might want to make this configurable
-                constant_filename = f"{client_name}_verified_population.xlsx"
-                self.verified_population_file = os.path.join(verified_pop_dir, constant_filename)
-                
-                if not os.path.exists(self.verified_population_file):
-                    self.logger.error(f"Verified population file not found at {self.verified_population_file}")
-                    return False
-                
-                self.logger.info(f"Using verified population file: {self.verified_population_file}")
-            
-            # Load the Excel file
-            self.logger.info(f"Loading data from {self.verified_population_file}")
-
-            # Check if file exists
-            if not os.path.exists(self.verified_population_file):
-                self.logger.error(f"File does not exist: {self.verified_population_file}")
-                return False
-            
-            # Load data from the Population Data sheet
-            try:
-                data = pd.read_excel(self.verified_population_file, sheet_name='Population Data')
-
-                # Check if data is empty
-                if data is None or data.empty:
-                    self.logger.error("Population Data sheet is empty or could not be read")
-                    return False
-                
-                # Check if required columns exist in change migration data
-                required_columns = ['Change_ID', 'Asset_Name', 'Requestor_ID', 'Approver_ID', 'Developer_ID', ]
-                missing_columns = [col for col in required_columns if col not in data.columns]
-
-                if missing_columns:
-                    self.logger.error(f"Missing required columns in change migration data: {missing_columns}")
-                    return False
-                
-                self.change_migration_data = data
-                self.logger.info(f"Loaded {len(self.change_migration_data)} records from verified population data")
-
-                # Load metadata from the Metadata sheet
-                try:
-                    metadata_df = pd.read_excel(self.verified_population_file, sheet_name='Metadata')
-
-                    # Convert metadata to dictionary
-                    for _, row in metadata_df.iterrows():
-                        key = row['Key']
-                        value = row['Value']
-                        self.metadata[key] = value
-                
-                    self.logger.info(f"Loaded metadata from verified population file")
-
-                except Exception as e:
-                    self.logger.warning(f"Error loading metadata sheet: {str(e)}")
-                    # Continue even if metadata can't be loaded
-                
-                return True
-
-            except Exception as e:
-                self.logger.error(f"Error reading Excel file: {str(e)}")
-                return False
-            
-        except Exception as e:
-            self.logger.error(f"Error loading verified population data: {str(e)}")
-            return False    
+        data, metadata, success = self.data_extractor.load_verified_population_data(self.verified_population_file)
+        if success:
+            self.change_migration_data = data
+            self.metadata.update(metadata)
+            return True
+        return False   
 
 
     def load_cicd_deployment_logs(self):
         """
         Load deployment log data.
         """
-        try:
-            self.logger.info("Loading deployment log data")
-            
-            # Load the deployment log data
-            file_path = os.path.join(self.data_dir, "c1_ci_cd_deployment_log_v1.csv")
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"Deployment log data file not found at {file_path}")
-            
-            # Load CSV file
-            data = pd.read_csv(file_path, sep=';')
-            self.logger.info(f"Actual columns in file: {list(data.columns)}")
-            self.logger.info(f"Loaded {len(data)} records from deployment log data")
-            
-            # Check if required columns exist
-            required_columns = ['Linked_Change_ID', 'Asset_Name', 'Deployer_ID', 'Deployer_Name']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            
-            if missing_columns:
-                self.logger.error(f"Missing required columns in deployment log data: {missing_columns}")
-                return False
-            
+        data, success = self.data_extractor.load_cicd_deployment_logs()
+        
+        if success:
             self.deployment_log_data = data
-            self.logger.info(f"Deployment log data loaded with {len(self.deployment_log_data)} records")
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error loading deployment log data: {str(e)}")
-            return False
+        return False
 
     def load_doa_matrix_data(self):
         """
         Load DOA (Delegation of Authority) matrix data.
         """
-        try:
-            self.logger.info("Loading DOA matrix data")
-            
-            # Load the DOA matrix data
-            file_path = os.path.join(self.data_dir, "C1_DOAs_MAtrix_V1.csv")
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"DOA matrix data file not found at {file_path}")
-            
-            # Load CSV file
-            data = pd.read_csv(file_path, sep=';')
-            self.logger.info(f"Actual columns in file: {list(data.columns)}")
-            self.logger.info(f"Loaded {len(data)} records from DOA matrix data")
-            
-            # Check if required columns exist
-            required_columns = ['Role', 'Authorized_Applications', 'Risk_Threshold']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            
-            if missing_columns:
-                self.logger.error(f"Missing required columns in DOA matrix data: {missing_columns}")
-                return False
-            
+        data, success = self.data_extractor.load_doa_matrix_data()
+        
+        if success:
             self.doa_matrix_data = data
-            self.logger.info(f"DOA matrix data loaded with {len(self.doa_matrix_data)} records")
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error loading DOA matrix data: {str(e)}")
-            return False
+        return False
 
     def load_iam_users_data(self):
         """
         Load IAM users status data.
         """
-        try:
-            self.logger.info("Loading IAM users status data")
-            
-            # Load the IAM users data
-            file_path = os.path.join(self.data_dir, "c1_iam_users_status_v1.csv")
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"IAM users status data file not found at {file_path}")
-            
-            # Load CSV file
-            data = pd.read_csv(file_path, sep=';')
-            self.logger.info(f"Actual columns in file: {list(data.columns)}")
-            # Check if required columns exist
-            required_columns = ['User_ID', 'IAM_Role', 'Mapped_DOA_Role']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            
-            if missing_columns:
-                self.logger.error(f"Missing required columns in IAM users status data: {missing_columns}")
-                return False
-            
+
+        data, success = self.data_extractor.load_iam_users_data()
+        
+        if success:
             self.iam_users_data = data
-            self.logger.info(f"IAM users status data loaded with {len(self.iam_users_data)} records")
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Error loading IAM users status data: {str(e)}")
-            return False
+        return False
    
 
 

@@ -18,10 +18,23 @@ class DataValidator:
             "warnings": []
         }
 
+    def _validate_mandatory_fields(self):
+        """Validate that all mandatory fields are present and not null"""
+        mandatory_fields = ['Implementation_Timestamp', 'Asset_Name', 'Change_Type', 'Approver_ID']
+    
+        for field in mandatory_fields:
+            if field not in self.data.columns:
+                self.validation_results["errors"].append(f"Mandatory field {field} is missing")
+                continue
+            
+            null_count = self.data[field].isnull().sum()
+            if null_count > 0:
+                self.validation_results["errors"].append(f"Found {null_count} null values in mandatory field {field}")
+    
     def validate(self):
         """Run all validations on the data"""
         logger.info("Starting data validation")
-        
+
         if self.data is None or self.data.empty:
             self.validation_results["is_valid"] = False
             self.validation_results["errors"].append("No data to validate")
@@ -29,9 +42,27 @@ class DataValidator:
             return self.validation_results
         
         # Run all validation checks
+        self._validate_mandatory_fields()
         self._validate_unique_change_id()
-        self._validate_date_range()
-        self._validate_asset_name() 
+
+        # Only validate date range if extraction parameters include date range
+        if self.extraction_params and "date_range" in self.extraction_params and \
+        self.extraction_params["date_range"].get("start_date") and \
+        self.extraction_params["date_range"].get("end_date"):
+            self._validate_date_range()
+        else:
+            logger.info("Date range parameters not provided or empty, skipping date range validation")
+            self.validation_results["warnings"].append("Date range not specified, skipping validation")    
+
+        # Only validate asset name if extraction parameters include asset name
+        if self.extraction_params and "asset_name" in self.extraction_params and \
+        self.extraction_params["asset_name"]:
+            self._validate_asset_name()
+        else:
+            logger.info("Asset name parameter not provided or empty, skipping asset name validation")
+            self.validation_results["warnings"].append("Asset name not specified, skipping validation")
+        
+        
         self._validate_allowed_values()
         self._validate_record_count()
         
@@ -53,8 +84,9 @@ class DataValidator:
             self.validation_results["errors"].append("Asset_Name column is missing")
             return
         
-        if not self.extraction_params or "asset_name" not in self.extraction_params:
-            self.validation_results["warnings"].append("No asset name specified for validation")
+        # Skip validation if asset name parameter is not provided or empty
+        if not self.extraction_params or "asset_name" not in self.extraction_params or not self.extraction_params["asset_name"]:
+            logger.info("Asset name parameter not provided or empty, skipping validation")
             return
         
         requested_asset = self.extraction_params["asset_name"]
@@ -91,8 +123,11 @@ class DataValidator:
             self.validation_results["errors"].append("Migration_DateTime column is missing")
             return
         
-        if not self.extraction_params or "date_range" not in self.extraction_params:
-            self.validation_results["warnings"].append("No date range specified for validation")
+        # Skip validation if date range parameters are not provided or empty
+        if not self.extraction_params or "date_range" not in self.extraction_params or \
+        not self.extraction_params["date_range"].get("start_date") or \
+        not self.extraction_params["date_range"].get("end_date"):
+            logger.info("Date range parameters not provided or empty, skipping validation")
             return
         
         # Convert to datetime if not already

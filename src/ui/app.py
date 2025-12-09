@@ -54,7 +54,6 @@ def run_scheduled_audit():
 # Initialize session state
 def init_session_state():
     """Initialize session state variables if they don't exist"""
-    # Existing session state variables
     if 'population_data' not in st.session_state:
         st.session_state.population_data = None
     if 'violations_data' not in st.session_state:
@@ -71,8 +70,10 @@ def init_session_state():
         st.session_state.active_tab = "Population"
     if 'scheduler_enabled' not in st.session_state:
         st.session_state.scheduler_enabled = False
+    if 'schedule_interval' not in st.session_state:
+        st.session_state.schedule_interval = 5  # Default to 5 minutes
     if 'start_delay' not in st.session_state:
-        st.session_state.start_delay = 5  # Default to 5 minutes delay
+        st.session_state.start_delay = 1  # Default to 1 minute delay
     if 'next_scheduled_run' not in st.session_state:
         st.session_state.next_scheduled_run = None
     if 'last_check_time' not in st.session_state:
@@ -101,10 +102,10 @@ def check_scheduled_run():
         # Run the audit
         run_full_audit()
         
-        # Disable the scheduler after running once
-        st.session_state.scheduler_enabled = False
-        st.session_state.next_scheduled_run = None
-        add_log("Scheduled run completed. Scheduler disabled.")
+        # Schedule the next run based on the interval
+        next_run = datetime.now() + timedelta(minutes=st.session_state.schedule_interval)
+        st.session_state.next_scheduled_run = next_run
+        add_log(f"Next scheduled run at {next_run.strftime('%H:%M:%S')}")
         
         return True
     
@@ -650,14 +651,15 @@ def toggle_scheduler():
         st.session_state.next_scheduled_run = None
         add_log("Scheduler disabled")
     else:
-        # Turn on scheduler with delay
+        # Turn on scheduler
         st.session_state.scheduler_enabled = True
         
-        # Schedule the run after the specified delay
+        # Schedule the first run after the specified delay
         scheduled_time = datetime.now() + timedelta(minutes=st.session_state.start_delay)
         st.session_state.next_scheduled_run = scheduled_time
         
-        add_log(f"Scheduler enabled. Will run once at {scheduled_time.strftime('%H:%M:%S')} (after {st.session_state.start_delay} minutes)")
+        add_log(f"Scheduler enabled. First run at {scheduled_time.strftime('%H:%M:%S')} (after {st.session_state.start_delay} minutes)")
+        add_log(f"Will continue running every {st.session_state.schedule_interval} minutes until stopped")
 
 
 def display_sidebar_controls():
@@ -688,22 +690,25 @@ def display_sidebar_controls():
     # Scheduler options
     st.sidebar.header("Scheduler")
     
-    # Delay setting
+    # Initial delay before first run
     start_delay = st.sidebar.number_input(
-        "Delay (minutes)", 
-        min_value=1, 
-        value=st.session_state.start_delay,
+        "Initial Delay (minutes)", 
+        min_value=0, 
+        value=st.session_state.get('start_delay', 1),  # Use get() with default
         key="start_delay_input"
     )
+    # Update session state
+    st.session_state.start_delay = start_delay
     
-    # Update the delay if changed
-    if start_delay != st.session_state.start_delay:
-        st.session_state.start_delay = start_delay
-        if st.session_state.scheduler_enabled:
-            # Update the scheduled time if scheduler is already running
-            scheduled_time = datetime.now() + timedelta(minutes=start_delay)
-            st.session_state.next_scheduled_run = scheduled_time
-            add_log(f"Delay updated. Will run at {scheduled_time.strftime('%H:%M:%S')}")
+    # Interval between runs
+    schedule_interval = st.sidebar.number_input(
+        "Run Interval (minutes)", 
+        min_value=1, 
+        value=st.session_state.get('schedule_interval', 5),  # Use get() with default
+        key="schedule_interval_input"
+    )
+    # Update session state
+    st.session_state.schedule_interval = schedule_interval
     
     # Scheduler control button
     button_label = "Stop Scheduler" if st.session_state.scheduler_enabled else "Start Scheduler"
@@ -719,9 +724,10 @@ def display_sidebar_controls():
             time_left = (st.session_state.next_scheduled_run - datetime.now()).total_seconds()
             minutes_left = max(0, int(time_left / 60))
             seconds_left = max(0, int(time_left % 60))
-            st.sidebar.info(f"Scheduled to run at: {next_run} ({minutes_left}m {seconds_left}s remaining)")
+            st.sidebar.info(f"Next run at: {next_run} ({minutes_left}m {seconds_left}s remaining)")
+            st.sidebar.info(f"Will continue running every {st.session_state.schedule_interval} minutes until stopped")
         else:
-            st.sidebar.info(f"Scheduled to run at: {next_run}")
+            st.sidebar.info(f"Next run at: {next_run}")
     
     # Log display
     st.sidebar.subheader("Log")
@@ -742,7 +748,7 @@ def main():
         layout="wide"
     )
     
-    # Initialize session state
+    # Initialize session state - MAKE SURE THIS IS CALLED FIRST
     init_session_state()
     
     # Check for scheduled runs

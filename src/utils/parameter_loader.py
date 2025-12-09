@@ -34,12 +34,12 @@ class ExtractionParameterLoader:
                 return None
             
             # Validate required columns
-            required_columns = ['client_name', 'start_date', 'end_date', 'asset_name']
+            """required_columns = ['client_name', 'start_date', 'end_date', 'asset_name']
             missing_columns = [col for col in required_columns if col not in df.columns]
             
             if missing_columns:
                 logger.error(f"Missing required columns in parameter file: {missing_columns}")
-                return None
+                return None"""
             
             # Process parameters
             parameters = []
