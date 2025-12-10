@@ -393,10 +393,11 @@ class SODViolationDetectionAgent:
             Example: "Requestor and Developer share the same ID (USR001); Developer and Approver share the same ID (USR001)"
 
             Return your analysis as a JSON array of objects, with each object containing the fields listed above.
+            Do not include any explanatory text outside the JSON array.
 
             IMPORTANT: You must return ALL records that were provided to you, with no omissions.
             If there are multiple records, make sure to include every single one in your response.
-        """
+            """
     
     def _call_ai_for_analysis(self, prompt, batch_index, batch_size, total_records):
         """
@@ -432,6 +433,9 @@ class SODViolationDetectionAgent:
         retry_count = 0
         while retry_count < max_retries:
             try:
+                if retry_count > 0:
+                    self.logger.info(f"Retry attempt {retry_count}/{max_retries} for AI analysis")
+
                 # First create a thread
                 thread_response = self.client.threads.create()
                 thread_id = thread_response.id
@@ -519,7 +523,7 @@ class SODViolationDetectionAgent:
         while retry_count < max_retries:
             try:
                 run_status = self.client.runs.get(thread_id=thread_id, run_id=run_id)
-                self.logger.info(f"Run status: {run_status.status}")
+                self.logger.info(f"Run status: {run_status.status} (attempt {retry_count+1}/{max_retries})")
 
                 if run_status.status == "completed":
                     # Get the messages from the thread
@@ -611,71 +615,39 @@ class SODViolationDetectionAgent:
         Extract JSON from the text.
         """
         try:
-            # Look for JSON content between triple backticks
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', text)
-            if json_match:
-                json_content = json_match.group(1)
-                self.logger.info(f"Found JSON content in backticks: {json_content[:100]}...")
-            else:
-                # Try to find any array in square brackets
-                json_match = re.search(r'\[\s*{[\s\S]*?}\s*\]', text)
+            
+            try:
+                ai_response = json.loads(text)
+                self.logger.info("Successfully parsed entire text as JSON")
+                return ai_response if isinstance(ai_response, list) else [ai_response]
+            except json.JSONDecodeError:
+                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
                 if json_match:
-                    json_content = json_match.group(0)
-                    self.logger.info(f"Found JSON array: {json_content[:100]}...")
+                    json_content = json_match.group(1)
+                    self.logger.info(f"Found JSON content in backticks")
+                    ai_response = json.loads(json_content)
+                    return ai_response if isinstance(ai_response, list) else [ai_response]
                 else:
-                    # Try to find any object in curly braces
-                    json_match = re.search(r'{[\s\S]*?}', text)
+                    json_match = re.search(r'\[\s*{[\s\S]*?}\s*\]', text)
                     if json_match:
                         json_content = json_match.group(0)
-                        self.logger.info(f"Found JSON object: {json_content[:100]}...")  
+                        self.logger.info(f"Found JSON array")
+                        return json.loads(json_content)
                     else:
-                        # Try to parse the entire text as JSON 
-                        try:
-                            json.loads(text)
-                            json_content = text
-                            self.logger.info("Using entire text as JSON")
-                        except:
-                            # Create a simple JSON structure with the text
+                        json_match = re.search(r'{[\s\S]*?}', text)
+                        if json_match:
+                            json_content = json_match.group(0)
+                            self.logger.info(f"Found JSON object")
+                            return [json.loads(json_content)]
+                        else:
                             self.logger.error("Could not find JSON content in the response")
-                            self.logger.info("Creating a simple JSON structure with the text")  
-
-                            # Extract information from the text using regex
-                            change_id_match = re.search(r'Change_ID: ([A-Za-z0-9]+)', text)
-                            asset_name_match = re.search(r'Asset_Name: ([A-Za-z0-9 ]+)', text)
-                            status_match = re.search(r'Status: "([A-Za-z]+)"', text)
-                        
-                            change_id = change_id_match.group(1) if change_id_match else "Unknown"
-                            asset_name = asset_name_match.group(1) if asset_name_match else "Unknown"
-                            status = status_match.group(1) if status_match else "Unknown" 
-
-                            # Create a simple JSON structure
-                            json_content = json.dumps([{
-                                "change_id": change_id,
-                                "asset_name": asset_name,
-                                "status": status,
-                                "exception_reason": text
-                            }])     
-
-            # Parse the JSON content
-            ai_response = json.loads(json_content)
-            self.logger.info(f"Parsed JSON: {type(ai_response)}") 
-            # Process the response based on its structure
-            if isinstance(ai_response, list):
-                return ai_response
-            elif isinstance(ai_response, dict):
-                if 'results' in ai_response:
-                    return ai_response['results']
-                else:
-                    return [ai_response]
-            else:
-                self.logger.warning(f"Unexpected JSON structure: {type(ai_response)}")
-                return []
+                            return []        
         except Exception as e:
             self.logger.error(f"Error extracting JSON from text: {str(e)}")
             return []
 
 
-    def _call_ai_with_alternative_methods(self, system_prompt, user_prompt, max_retries=3):
+    def _call_ai_with_alternative_methods(self, system_prompt, user_prompt, max_retries=5):
         """
         Call AI using alternative API methods with retries.
         """
@@ -808,82 +780,81 @@ class SODViolationDetectionAgent:
             ])
             return
 
-        # Check the structure of the first result to determine the key name
-        sample_result = all_results[0]
-        change_id_key = None
-
-        # Look for possible change ID key names
-        possible_keys = ['change_id', 'Change_ID', 'change_ID', 'ChangeID', 'changeId', 'id']
-        for key in possible_keys:
-            if key in sample_result:
-                change_id_key = key
-                self.logger.info(f"Using '{change_id_key}' as the change ID key")
-                break
-
-        if not change_id_key:
-            # If no recognized key is found, print the keys that are available
-            self.logger.warning(f"Could not find change ID key in results. Available keys: {list(sample_result.keys())}")
-            # Try to use the first key as the change ID (as a fallback)
-            if sample_result:
-                change_id_key = list(sample_result.keys())[0]
-                self.logger.info(f"Using '{change_id_key}' as the change ID key")
-            else:
-                self.logger.error("Error: Empty result dictionary")
-                return    
-
-        # Check for missing records - USE THE IDENTIFIED KEY HERE
-        processed_ids = set(result[change_id_key] for result in all_results if change_id_key in result)
+        standardized_results = []
+        for result in all_results:
+            standardized_result = {
+                'change_id': result.get('change_id', result.get('Change_ID', result.get('changeId', ''))),
+                'asset_name': result.get('asset_name', result.get('Asset_Name', '')),
+                'requestor_id': result.get('requestor_id', result.get('Requestor_ID', '')),
+                'requestor_name': result.get('requestor_name', result.get('Requestor_Name', '')),
+                'developer_id': result.get('developer_id', result.get('Developer_ID', '')),
+                'developer_name': result.get('developer_name', result.get('Developer_Name', '')),
+                'deployer_id': result.get('deployer_id', result.get('Deployer_ID', '')),
+                'deployer_name': result.get('deployer_name', result.get('Deployer_Name', '')),
+                'approval_id': result.get('approval_id', result.get('Approver_ID', '')),
+                'approval_name': result.get('approval_name', result.get('Approver_Name', '')),
+                'status': result.get('status', result.get('Status', '')),
+                'exception_reason': result.get('exception_reason', result.get('Exception_Reason', ''))
+            }
+            standardized_results.append(standardized_result)
+        
+        processed_ids = set(result['change_id'] for result in standardized_results if result['change_id'])
         original_ids = set(merged_df['Change_ID'])
-        missing_ids = original_ids - processed_ids   
+        missing_ids = original_ids - processed_ids
 
 
         if missing_ids:
-            self.logger.warning(f"Some records were not processed: {missing_ids}")
-            # Add missing records with a note
-            for missing_id in missing_ids:
-                missing_record = merged_df[merged_df['Change_ID'] == missing_id].iloc[0]
-                missing_result = {
-                    'asset_name': missing_record['Asset_Name'],
-                    'requestor_id': missing_record['Requestor_ID'],
-                    'requestor_name': missing_record['Requestor_Name'],
-                    'developer_id': missing_record['Developer_ID'],
-                    'developer_name': missing_record['Developer_Name'],
-                    'deployer_id': missing_record['Deployer_ID'],
-                    'deployer_name': missing_record['Deployer_Name'],
-                    'approval_id': missing_record['Approver_ID'],
-                    'approval_name': missing_record['Approver_Name'],
-                    'status': 'Unknown',
-                    'exception_reason': 'Record not processed by AI analysis'
+            missing_records = merged_df[merged_df['Change_ID'].isin(missing_ids)]
+            missing_batch_json = missing_records.to_json(orient='records')
+            prompt = self._create_ai_prompt(missing_batch_json)
+
+            # Send the missing records to AI for analysis
+            missing_results = self._call_ai_for_analysis(prompt, 0, len(missing_ids), len(missing_ids))
+
+            # Standardize and add the missing results
+            for result in missing_results:
+                standardized_result = {
+                    'change_id': result.get('change_id', result.get('Change_ID', result.get('changeId', ''))),
+                    'asset_name': result.get('asset_name', result.get('Asset_Name', '')),
+                    'requestor_id': result.get('requestor_id', result.get('Requestor_ID', '')),
+                    'requestor_name': result.get('requestor_name', result.get('Requestor_Name', '')),
+                    'developer_id': result.get('developer_id', result.get('Developer_ID', '')),
+                    'developer_name': result.get('developer_name', result.get('Developer_Name', '')),
+                    'deployer_id': result.get('deployer_id', result.get('Deployer_ID', '')),
+                    'deployer_name': result.get('deployer_name', result.get('Deployer_Name', '')),
+                    'approval_id': result.get('approval_id', result.get('Approver_ID', '')),
+                    'approval_name': result.get('approval_name', result.get('Approver_Name', '')),
+                    'status': result.get('status', result.get('Status', '')),
+                    'exception_reason': result.get('exception_reason', result.get('Exception_Reason', ''))
                 }
-                # Use the identified key for the change ID
-                missing_result[change_id_key] = missing_record['Change_ID']
-                all_results.append(missing_result)
-        # Create a DataFrame from the results
-        results_df = pd.DataFrame(all_results)  
+                standardized_results.append(standardized_result)   
 
-        # Merge with original data to get all relevant fields
-        self.violations_data = pd.merge(
-            results_df,
-            merged_df,
-            left_on=[change_id_key, 'asset_name'],
-            right_on=['Change_ID', 'Asset_Name'],
-            how='left'
-        )
+        # Create a DataFrame from the standardized results
+        results_df = pd.DataFrame(standardized_results)
 
-        # Rename columns for consistency
-        self.violations_data = self.violations_data.rename(columns={
+        column_mapping = {
+            'change_id': 'Change_ID',
+            'asset_name': 'Asset_Name',
+            'requestor_id': 'Requestor_ID',
+            'requestor_name': 'Requestor_Name',
+            'developer_id': 'Developer_ID',
+            'developer_name': 'Developer_Name',
+            'deployer_id': 'Deployer_ID',
+            'deployer_name': 'Deployer_Name',
+            'approval_id': 'Approver_ID',
+            'approval_name': 'Approver_Name',
             'status': 'Status',
             'exception_reason': 'Exception_Reason'
-        })
+        }
+        results_df = results_df.rename(columns=column_mapping)
 
-        # Drop duplicate columns
-        if change_id_key in self.violations_data.columns:
-            self.violations_data = self.violations_data.drop(columns=[change_id_key, 'asset_name'])
-
+        # Use this as the violations data
+        self.violations_data = results_df
+    
         # Standardize exception reasons
-        self._standardize_exception_reasons()     
-
-        self.logger.info(f"Total records analyzed by AI: {len(self.violations_data)}")
+        self._standardize_exception_reasons()
+    
+        self.logger.info(f"Total records analyzed: {len(self.violations_data)}")
         self.logger.info(f"Records with violations: {len(self.violations_data[self.violations_data['Status'] == 'Exception'])}")
 
     def _standardize_exception_reasons(self):
@@ -897,6 +868,24 @@ class SODViolationDetectionAgent:
         for idx in self.violations_data[exception_rows].index:
             row = self.violations_data.loc[idx] 
     
+            required_columns = ['Requestor_ID', 'Developer_ID', 'Deployer_ID', 'Approver_ID']
+            missing_columns = [col for col in required_columns if col not in row.index]
+
+            if missing_columns:
+                # Handle missing columns by checking for lowercase alternatives
+                column_mapping = {}
+                for col in missing_columns:
+                    lowercase_col = col.lower()
+                    if lowercase_col in row.index:
+                        column_mapping[col] = lowercase_col
+                # If we still have missing columns after checking lowercase alternatives, skip this row
+                still_missing = [col for col in missing_columns if col not in column_mapping]
+                if still_missing:
+                    self.logger.warning(f"Skipping row with Change_ID {row.get('Change_ID', row.get('change_id', 'Unknown'))} due to missing columns: {still_missing}")
+                    continue   
+            else:
+                column_mapping = {col: col for col in required_columns}         
+
             # Group violations by user ID
             violations_by_id = {}
             # Check each user ID and collect the roles they perform
