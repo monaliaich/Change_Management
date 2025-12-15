@@ -1,4 +1,4 @@
-# Change Management Audit Automation
+# Appropriate IT or Business Change-Management Personnel Approve Migration of Changes to Production
 
 This project implements an automated audit system for change management processes, focusing on segregation of duties (SOD) validation, approver authorization, and deployer verification. The system uses AI-powered agents to analyze change management data and identify compliance issues.
 
