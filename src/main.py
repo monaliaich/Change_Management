@@ -6,6 +6,7 @@ from datetime import datetime as dt
 from datetime import timedelta
 from typing import Dict, List, Type, Optional
 import asyncio
+from agents.deployer_validation_agent import DeployerValidationAgent
 
 # Import your agents
 from agents.identify_change_migration_agent import IdentifyChangeMigrationAgent
@@ -24,6 +25,35 @@ class AuditWorkflow:
         self.output_dir = output_dir
         self.logger = logging.getLogger(self.__class__.__name__)
         self.population_file = None
+    
+    def run_deployer_validation_workflow(self) -> bool:
+        """Run the deployer validation workflow"""
+        # First run the identify agent
+        if not self.run_identify_agent():
+            return False
+        
+        # Then run the deployer validation agent
+        self.logger.info("Starting: Deployer Validation")
+        deployer_agent = DeployerValidationAgent(
+            data_dir=self.data_dir, 
+            output_data_dir=self.output_dir,
+            verified_population_file=self.population_file
+        )
+        
+        try:
+            # Run the agent
+            deployer_result = deployer_agent.run()
+            
+            if not deployer_result:
+                self.logger.error("DeployerValidationAgent failed.")
+                return False
+            
+            self.logger.info("Deployer validation workflow completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error running DeployerValidationAgent: {str(e)}")
+            return False    
     
     def run_identify_agent(self) -> bool:
         """Run the identification agent which is common for all workflows"""
@@ -189,8 +219,8 @@ def main():
                       help='Interval in minutes for periodic execution (default: 5)')
     parser.add_argument('--duration', type=int, default=60,
                       help='Duration in minutes to run the scheduler (default: 60, 0 for indefinite)')
-    parser.add_argument('--workflow', choices=['sod', 'approver'], default='sod',
-                      help='Workflow to execute: sod (SOD Violation) or approver (Approver Validation)')
+    parser.add_argument('--workflow', choices=['sod', 'approver', 'deployer'], default='sod',
+                      help='Workflow to execute: sod (SOD Violation), approver (Approver Validation), or deployer (Deployer Validation)')
     args = parser.parse_args()
     
     logger = setup_logging()
@@ -207,9 +237,12 @@ def main():
     if args.workflow == 'sod':
         workflow_function = workflow.run_sod_workflow
         workflow_name = "SOD Violation Detection"
-    else:  # approver
+    elif args.workflow == 'approver':
         workflow_function = workflow.run_approver_validation_workflow
         workflow_name = "Approver Validation"
+    elif args.workflow == 'deployer':
+        workflow_function = workflow.run_deployer_validation_workflow
+        workflow_name = "Deployer Validation"
     
     logger.info(f"Selected workflow: {workflow_name}")
     
