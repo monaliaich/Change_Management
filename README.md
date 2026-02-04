@@ -145,3 +145,153 @@ Each agent generates reports in Excel format with detailed findings and metadata
 ## Logging
 
 The system logs detailed information about its operations to both the console and a log file (`audit_agents.log`).
+
+## Azure AI Foundry (Project Endpoints)
+- Create Resource Group
+- Create AI Hub (Foundry)
+- Create Project (Inside AI Hub - Foundry Project)
+- Open "Go To Foundry Portal"
+- Create MODEL + ENDPOINTS : GPT -4o
+- Provide RBAC access inside Foundry project
+     - Access Control IAM
+     - View Access (search "Cognitive Services User")
+     - Not present, then "Add Role Assignment"
+     - Click Next, then assign it to: Your user (email) 
+     - Click Review + assign
+
+# Setting Up the Change Management Automation Project
+
+This guide will help you set up and run the Change Management Automation project after pulling it from GitHub.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+- Python 3.8 or higher
+- Git
+- Azure CLI
+
+## Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/monaliaich/Change_Management.git
+cd Change_Management
+```
+
+## Step 2: Set Up a Virtual Environment
+
+```bash
+# Create a virtual environment
+python -m venv venv
+
+# Activate the virtual environment
+# On Windows:
+venv\Scripts\activate
+#Powershell :
+.\.venv\Scripts\Activate.ps1
+# On macOS/Linux:
+source venv/bin/activate
+```
+
+## Step 3: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## Step 4: Configure Azure AI Foundry
+
+1. **Log in to Azure**
+   ```bash
+   az login
+   ```
+
+2. **Set up environment variables**
+   
+   Create a `.env` file in the project root with the following variables:
+   ```
+   PROJECT_ENDPOINT=your_foundry_project_endpoint
+   AGENT_MODEL_DEPLOYMENT_NAME=your_model_deployment_name
+   ```
+
+## Step 5: Prepare Data Files
+
+Ensure you have the required data files in the appropriate format:
+- Place change migration data in the `data/input/` directory
+- Place IAM users data in the `data/input/` directory
+- Place CI/CD deployment logs in the `data/input/` directory
+- Place DOA matrix data in the `data/input/` directory
+
+## Step 6: Configure Azure AI Foundry Project
+
+1. **Create Resource Group in Azure Portal**
+2. **Create AI Hub (Foundry)**
+3. **Create Project inside AI Hub**
+4. **Open "Go To Foundry Portal"**
+5. **Create MODEL + ENDPOINTS**
+   - Select GPT-4o as the model
+   - Note the endpoint URL for your `.env` file
+
+6. **Provide RBAC access inside Foundry project**
+   - Go to Access Control (IAM)
+   - View Access (search "Cognitive Services User")
+   - If not present, click "Add Role Assignment"
+   - Click Next, then assign it to your user (email)
+   - Click Review + assign
+
+## Step 7: Run the Application
+
+### For a single execution:
+
+```bash
+python src/main.py --workflow sod --mode run 
+
+python src/main.py --workflow deployer --mode run
+
+python src/main.py --workflow approver --mode run
+```
+
+### For scheduled execution:
+
+```bash
+python main.py --mode schedule --workflow sod --interval 5 --duration 60
+
+python main.py --mode schedule --workflow deployer --interval 5 --duration 60
+
+python main.py --mode schedule --workflow approver --interval 5 --duration 60
+```
+
+Available workflows:
+- `sod`: Runs SOD violation detection
+- `approver`: Runs approver validation
+- `deployer`: Runs deployer validation
+
+## Step 8: Check Results
+
+After execution, check the output directory for generated reports:
+```bash
+ls data/output/
+```
+
+The reports will be in Excel format with detailed findings and metadata.
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Authentication Errors**:
+   - Ensure you're logged in with Azure CLI: `az login`
+   - Verify your user has the "Cognitive Services User" role in the Foundry project
+
+2. **Missing Environment Variables**:
+   - Check that your `.env` file or system environment variables are correctly set
+
+3. **Data Format Issues**:
+   - Ensure your input data files follow the expected format
+   - Check the logs for any data validation errors
+
+### Logging
+
+The system logs detailed information to both the console and a log file:
+```bash
+cat audit_agents.log
+```
